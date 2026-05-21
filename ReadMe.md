@@ -6,7 +6,7 @@ The server exposes a few REST endpoints that allow for (hopefully) efficient str
 Geographic file servers exist (a la GeoServer) and are *Very* good at what they do - but sometimes it's too much. For a portion of a project where all you want to do is efficiently stream some spatial files stored on disk to some client ( maybe put it behind Nginx and add some rate limits ) and allow for reprojection/subsetting - GeoServer can feel like overkill. This gets that portion up and running in 5 minutes, hopefully.
 
 ## How do I Use It?
-Clone the repo, run ```sh npm run build``` and ```sh npm run postbuild``` and build the docker image, thats it.
+Clone the repo, run ```npm run build``` and ```npm run postbuild``` and build the docker image, thats it.
 
 When you run the container - bind the directry you want to serve files out of on your host to the */files* path in the container - any files/directories there will be accessible to the server.
 

@@ -390,7 +390,6 @@ app.get("/transformDatasetStream", async (req, res) => {
 
 });
 
-
 app.get("/list", async (req, res) => {
 
     const schema = v.object({
@@ -419,10 +418,6 @@ app.get("/list", async (req, res) => {
 
     for (let i = 0; i < dirContent.length; i++) {
 
-        console.log(`is dir: ${dirContentTypes[i].isDirectory()}`);
-        console.log(`content of directory: ${JSON.stringify(dirContent)}`);
-
-
         let fullPath = dirContentTypes[i].isDirectory() ? await validateDirectoryPath(join(path, dirContent[i]), false) : await validateFilePathExists(join(path, dirContent[i]), false);
 
         if (!fullPath) {
@@ -430,7 +425,6 @@ app.get("/list", async (req, res) => {
             return;
         }
 
-        console.log(`about to stat: ${fullPath}`)
         let stats = await stat(fullPath);
 
         details.push({
@@ -473,8 +467,6 @@ async function validateFilePathExists(path: string, prepend: boolean = true): Pr
 
 async function validateDirectoryPath(path: string, prepend: boolean = true): Promise<string | undefined> {
     let absolute = resolve(prepend ? join(process.env.TRANSFORM_SOURCE_FILES_PATH as string, path) : path);
-
-    console.log(`resolved to ${absolute}`);
 
     if (!absolute.startsWith(process.env.TRANSFORM_SOURCE_FILES_PATH as string)) return undefined;
 

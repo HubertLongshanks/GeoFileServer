@@ -24,14 +24,14 @@ setInterval(() => {
         return;
     }
 
-    let files = globSync("/tmpFiles/*");
+    let files = globSync("/tmpfiles/*");
 
     for ( let file of files ) {
 
-        let now = Date.now() + CLEANER_INTERVAL;
+        let now = Date.now() - CLEANER_INTERVAL;
 
         stat(file , ( err , stat) => {
-            if ( stat.birthtime > new Date(now) ) {
+            if ( !err && stat.birthtime > new Date(now) ) {
                 unlink(file , (err) => {
                     console.error(`error: ${err?.toString()} unlinking temp file: ${file}`);
                 })

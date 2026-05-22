@@ -524,15 +524,11 @@ async function validateDirectoryPath(path: string, prepend: boolean = true): Pro
  */
 async function validateFileType(path: string): Promise<"raster" | "vector" | undefined> {
 
-    console.log(`path for check ${path}`);
-
     let isRaster = spawn("gdalinfo", ["-so", path]);
 
     let isFGB = spawn("ogrinfo", ["-so", path]);
 
     let results = await Promise.all([once(isRaster, "close"), once(isFGB, "close")]);
-
-    console.log(JSON.stringify(results))
 
     return results[0][0] !== 0 && results[1][0] !== 0 ? undefined : results[0][0] === 0 ? "raster" : results[1][0] === 0 ? "vector" : undefined;
 }

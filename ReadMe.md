@@ -31,7 +31,7 @@ GET
 ```txt
 {
     file : string | string[], //the file(s) to subset/transform
-    bbox? : [ minx , miny , maxx , maxy ],
+    bbox? : [ minx , miny , maxx , maxy ], #in EPSG:4326
     reprojectTo? : string //epsg code,
     readme? : boolean //if exists we push a zip with a simple readme auto generated ( this really can just be used to trick the browser into starting the download before the stream has started, can be nice with large TIFF files)
 }

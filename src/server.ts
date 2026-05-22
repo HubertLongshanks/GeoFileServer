@@ -524,9 +524,9 @@ async function validateDirectoryPath(path: string, prepend: boolean = true): Pro
  */
 async function validateFileType(path: string): Promise<"raster" | "vector" | undefined> {
 
-    let isRaster = spawn("gdalinfo", ["-so", path]);
+    let isRaster = spawn("gdalinfo", [path]);
 
-    let isFGB = spawn("ogrinfo", ["-so", path]);
+    let isFGB = spawn("ogrinfo", [path]);
 
     let results = await Promise.all([once(isRaster, "close"), once(isFGB, "close")]);
 

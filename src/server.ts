@@ -26,18 +26,6 @@ const REQTIMEOUT = process.env.TRANSFORM_SERVER_TIMEOUT ? parseInt(process.env.T
 if (process.env.TRANSFORM_SOURCE_FILES_PATH === undefined) throw TypeError("env var TRANSFORM_SOURCE_FILES_PATH is undefined");
 if (process.env.TRANSFORM_FILES_PATH === undefined) throw TypeError("env var TRANSFORM_FILES_PATH is undefined");
 
-//what filebrowser http api returns for a file entry
-type FileResourceEntry = {
-    path: string; // e.g /US_WUI.fgb
-    name: string; // name without path
-    size: number; //bytes
-    extension: string;
-    modified: string; //string timestamp in UTC
-    mode: number;
-    isDir: boolean;
-    isSymlink: boolean;
-    type: string;
-};
 
 /*streams response back to client, TTFB should be quite good performance
 * req format {

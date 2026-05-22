@@ -405,7 +405,7 @@ app.get("/transformDatasetStream", async (req, res) => {
             let [exitCodes] = await Promise.all(streamPromises);
 
             if (err) {
-                console.error(`error in stream`)
+                console.error(`error in stream`);
                 return;
             }
 

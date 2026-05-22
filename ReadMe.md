@@ -3,7 +3,7 @@ This is a small (Work In Progress) repo that implements a streaming based file s
 The server exposes a few REST endpoints that allow for (hopefully) efficient streaming of geographic files, subsets of those files and reprojections ( and any combiination thereof ) to a client. 
 
 ## Why
-Geographic file servers exist (a la GeoServer) and are *Very* good at what they do - but sometimes it's too much. For a portion of a project where all you want to do is efficiently stream some spatial files stored on disk to some client ( maybe put it behind Nginx and add some rate limits ) and allow for reprojection/subsetting - GeoServer can feel like overkill. This gets that portion up and running in 5 minutes, hopefully.
+Geographic file servers exist (a la GeoServer) and are *Very* good at what they do - but sometimes it's too much. For a portion of a project where all you want to do is efficiently stream some spatial files stored on disk to some client ( maybe put it behind Nginx and add some rate limits ) and allow for reprojection/subsetting on the fly - GeoServer can feel like overkill. This gets that portion up and running in 5 minutes, hopefully.
 
 ## How do I Use It?
 Clone the repo, run ```npm run build``` and ```npm run postbuild``` and build the docker image, thats it.

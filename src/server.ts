@@ -2,7 +2,7 @@ import express from "express";
 import * as v from "valibot";
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { once } from "node:events";
-import { rm, existsSync, unlink, ReadStream, Stats } from "node:fs";
+import { rm, existsSync, unlink, Stats, ReadStream } from "node:fs";
 import * as crypto from "node:crypto";
 import Archiver from "archiver";
 import { createReadStream } from "node:fs";
@@ -153,16 +153,6 @@ app.get("/transformDatasetStream", async (req, res) => {
             });
         }
 
-        //details about each subproccess , if type === "raster" -> tmpFilePath is defined else undefined
-        let fileStreams: {
-            type: "raster" | "vector",
-            tmpFilePath?: string,
-            shortName: string,
-            subProc: ChildProcessWithoutNullStreams,
-            aborter?: AbortController,
-            timeout?: NodeJS.Timeout
-        }[] = [];
-
         //the archiver option
         let zipArchive: Archiver.Archiver = Archiver("zip", {
             "forceZip64": true,
@@ -188,191 +178,246 @@ app.get("/transformDatasetStream", async (req, res) => {
 
         res.setHeader("Cache-Control", "no-cache");
 
-        //create streams and set up callback handling
-        for (let fileEntry of relevantFileRecords) {
+        //if the user wants to reproject / subset the data it gets complicated
+        if (params.bbox || params.reprojectTo) {
 
-            let entryObj: {
+            //details about each subproccess , if type === "raster" -> tmpFilePath is defined else undefined
+            let fileStreams: {
                 type: "raster" | "vector",
                 tmpFilePath?: string,
                 shortName: string,
                 subProc: ChildProcessWithoutNullStreams,
                 aborter?: AbortController,
                 timeout?: NodeJS.Timeout
-            } = {} as any;
+            }[] = [];
 
-            const FILETYPE = fileEntry.type;
+            //create streams and set up callback handling
+            for (let fileEntry of relevantFileRecords) {
 
-            entryObj.type = FILETYPE;
-            entryObj.shortName = fileEntry.basename;
+                let entryObj: {
+                    type: "raster" | "vector",
+                    tmpFilePath?: string,
+                    shortName: string,
+                    subProc: ChildProcessWithoutNullStreams,
+                    aborter?: AbortController,
+                    timeout?: NodeJS.Timeout
+                } = {} as any;
 
-            const FILENAME_IF_RASTER = `${process.env.TRANSFORM_FILES_PATH}/${crypto.randomUUID().slice(0, 7)}_${fileEntry.basename}`;
+                const FILETYPE = fileEntry.type;
 
-            if (FILETYPE === "raster") {
-                entryObj.tmpFilePath = FILENAME_IF_RASTER;
-            }
+                entryObj.type = FILETYPE;
+                entryObj.shortName = fileEntry.basename;
 
-            let subProc = startGDALSubprocess(
-                FILETYPE,
-                fileEntry.basename,
-                FILETYPE === "raster" ? FILENAME_IF_RASTER : undefined,
-                params.bbox as any,
-                params.reprojectTo,
-                true
-            );
+                const FILENAME_IF_RASTER = `${process.env.TRANSFORM_FILES_PATH}/${crypto.randomUUID().slice(0, 7)}_${fileEntry.basename}`;
 
-            //error in subprocess, unlink all temp files, destroy other streams, finalize corrupted zip stream and end response
-            //causes res.close() to be emitted
-            subProc.on("error", async (err) => {
-                console.error(`GDAL subprocess on zip exited with ${err.message}`);
-
-                if (existsSync(FILENAME_IF_RASTER))
-                    unlink(FILENAME_IF_RASTER, () => { });
-
-                //cleanup others as well
-                cleanupFileStreams(fileStreams);
-
-                zipArchive.destroy();
-                res.end();
-            });
-            subProc.stdout.on("error", (err) => { console.error("GDAL Error...") });
-            subProc.stderr.on("data", (data) => { console.error(data?.toString()) });
-
-            entryObj.subProc = subProc;
-
-            //client disconnect or we finish/destroy response
-            res.on("close", (ev) => {
-
-                cleanupFileStreams(fileStreams);
-
-                if (!zipArchive.destroyed) {
-                    zipArchive.destroy();
+                if (FILETYPE === "raster") {
+                    entryObj.tmpFilePath = FILENAME_IF_RASTER;
                 }
-            });
 
-            //handle timeout on raster data
+                let subProc = startGDALSubprocess(
+                    FILETYPE,
+                    fileEntry.basename,
+                    FILETYPE === "raster" ? FILENAME_IF_RASTER : undefined,
+                    params.bbox as any,
+                    params.reprojectTo,
+                    true
+                );
 
-            if (FILETYPE === "raster") {
-                let abortHandler = new AbortController();
+                //error in subprocess, unlink all temp files, destroy other streams, finalize corrupted zip stream and end response
+                //causes res.close() to be emitted
+                subProc.on("error", async (err) => {
+                    console.error(`GDAL subprocess on zip exited with ${err.message}`);
 
-                entryObj.aborter = abortHandler;
-
-                abortHandler.signal.onabort = async (ev) => { //kill on timeout
-                    console.warn("Killed subproces due to timeout.");
-                    subProc?.kill(9);
                     if (existsSync(FILENAME_IF_RASTER))
                         unlink(FILENAME_IF_RASTER, () => { });
 
+                    //cleanup others as well
                     cleanupFileStreams(fileStreams);
 
                     zipArchive.destroy();
                     res.end();
-                };
+                });
+                subProc.stdout.on("error", (err) => { console.error("GDAL Error...") });
+                subProc.stderr.on("data", (data) => { console.error(data?.toString()) });
 
-                let tm = setTimeout(() => {
-                    if (FILETYPE === "raster") //timeout only valid if we arent directly stream downloading
-                        abortHandler.abort(); //signal kill
-                }, REQTIMEOUT);
+                entryObj.subProc = subProc;
 
-                entryObj.timeout = tm;
-            }
+                //client disconnect or we finish/destroy response
+                res.on("close", (ev) => {
 
+                    cleanupFileStreams(fileStreams);
 
-            //add process to tracking array
-            fileStreams.push(entryObj);
-
-        }
-
-        //start piping the vector (if any) streams to zip
-        for (let stream of fileStreams) {
-            if (stream.type === "vector")
-                zipArchive.append(stream.subProc.stdout, { "name": stream.shortName });
-        }
-
-        //we want an instant response even if the vector or raster streams arent instant, so if params.readme is spefified
-        //we write a simple dummy readme for the user thand pipe it
-
-        if (params.readme) {
-            let readmeContent: string = "We hope you like your data!\n\nNote that if you subsetted and reprojected your data, the bounds may be slightly larger than you expected if the reprojection was considerable.\nReprojections change coordinate spaces and we use approximate bounds to speedup the download process."
-
-            let readmeStream = Readable.from(readmeContent);
-
-            zipArchive.append(readmeStream, { "name": "readme.txt" });
-        }
-
-        zipArchive.pipe(res);
-
-        let subprocPromises: Promise<any[]>[] = [];
-
-        for (let subproc of fileStreams) {
-            subprocPromises.push(once(subproc.subProc, "close"));
-        }
-
-        let promErr: boolean = false;
-
-        let exitCodes = await Promise.all(subprocPromises).catch((err) => {
-            console.error(`streaming subprocesses Promise.all() rejected for: ${err?.toString()}`);
-
-            if (!res.destroyed) res.destroy();
-
-            promErr = true;
-        }); //pause here to wait for all to finish
-
-        //clear existing timeouts
-        for (let stream of fileStreams) {
-            if (stream.timeout) clearTimeout(stream.timeout);
-        }
-
-        if (promErr) return;
-
-        //all processes exited, check exit codes
-        for (let code of exitCodes as any[][]) {
-            if (code[0] !== 0) { //error
-                console.error(`error in stream subprocess exited with code: ${code[0]}`);
-
-                if (!res.destroyed) res.destroy();
-
-                return; //exit function
-            }
-        }
-
-        //now we need to pipe any raster output to the respoonse stream
-
-        let finishedRasterStreamDetails = fileStreams.map((el) => {
-            if (el.type !== "raster") return undefined;
-
-            return { path: el.tmpFilePath, name: el.shortName };
-        }).filter((el) => { return el !== undefined });
-
-        let readableFileStreams: { "stream": ReadStream, "name": string }[] = [];
-
-        for (let raster of finishedRasterStreamDetails) {
-            readableFileStreams.push({
-                stream: createReadStream(raster.path as string),
-                name: raster.name
-            });
-        }
-
-        //end response on error and cleanup
-        for (let stream of readableFileStreams) {
-            stream.stream.on("error", (err) => {
-                console.error(`error in readable raster filestream: ${err?.toString()}`);
-
-                for (let stream of readableFileStreams) {
-                    if (!stream.stream.closed) {
-                        stream.stream.destroy();
+                    if (!zipArchive.destroyed) {
+                        zipArchive.destroy();
                     }
+                });
+
+                //handle timeout on raster data
+
+                if (FILETYPE === "raster") {
+                    let abortHandler = new AbortController();
+
+                    entryObj.aborter = abortHandler;
+
+                    abortHandler.signal.onabort = async (ev) => { //kill on timeout
+                        console.warn("Killed subproces due to timeout.");
+                        subProc?.kill(9);
+                        if (existsSync(FILENAME_IF_RASTER))
+                            unlink(FILENAME_IF_RASTER, () => { });
+
+                        cleanupFileStreams(fileStreams);
+
+                        zipArchive.destroy();
+                        res.end();
+                    };
+
+                    let tm = setTimeout(() => {
+                        if (FILETYPE === "raster") //timeout only valid if we arent directly stream downloading
+                            abortHandler.abort(); //signal kill
+                    }, REQTIMEOUT);
+
+                    entryObj.timeout = tm;
                 }
 
+
+                //add process to tracking array
+                fileStreams.push(entryObj);
+
+            }
+
+            //start piping the vector (if any) streams to zip
+            for (let stream of fileStreams) {
+                if (stream.type === "vector")
+                    zipArchive.append(stream.subProc.stdout, { "name": stream.shortName });
+            }
+
+            //we want an instant response even if the vector or raster streams arent instant, so if params.readme is spefified
+            //we write a simple dummy readme for the user thand pipe it
+
+            if (params.readme) {
+                let readmeContent: string = "We hope you like your data!\n\nNote that if you subsetted and reprojected your data, the bounds may be slightly larger than you expected if the reprojection was considerable.\nReprojections change coordinate spaces and we use approximate bounds to speedup the download process."
+
+                let readmeStream = Readable.from(readmeContent);
+
+                zipArchive.append(readmeStream, { "name": "readme.txt" });
+            }
+
+            zipArchive.pipe(res);
+
+            let subprocPromises: Promise<any[]>[] = [];
+
+            for (let subproc of fileStreams) {
+                subprocPromises.push(once(subproc.subProc, "close"));
+            }
+
+            let promErr: boolean = false;
+
+            let exitCodes = await Promise.all(subprocPromises).catch((err) => {
+                console.error(`streaming subprocesses Promise.all() rejected for: ${err?.toString()}`);
+
                 if (!res.destroyed) res.destroy();
-            });
+
+                promErr = true;
+            }); //pause here to wait for all to finish
+
+            //clear existing timeouts
+            for (let stream of fileStreams) {
+                if (stream.timeout) clearTimeout(stream.timeout);
+            }
+
+            if (promErr) return;
+
+            //all processes exited, check exit codes
+            for (let code of exitCodes as any[][]) {
+                if (code[0] !== 0) { //error
+                    console.error(`error in stream subprocess exited with code: ${code[0]}`);
+
+                    if (!res.destroyed) res.destroy();
+
+                    return; //exit function
+                }
+            }
+
+            //now we need to pipe any raster output to the respoonse stream
+
+            let finishedRasterStreamDetails = fileStreams.map((el) => {
+                if (el.type !== "raster") return undefined;
+
+                return { path: el.tmpFilePath, name: el.shortName };
+            }).filter((el) => { return el !== undefined });
+
+            let readableFileStreams: { "stream": ReadStream, "name": string }[] = [];
+
+            for (let raster of finishedRasterStreamDetails) {
+                readableFileStreams.push({
+                    stream: createReadStream(raster.path as string),
+                    name: raster.name
+                });
+            }
+
+            //end response on error and cleanup
+            for (let stream of readableFileStreams) {
+                stream.stream.on("error", (err) => {
+                    console.error(`error in readable raster filestream: ${err?.toString()}`);
+
+                    for (let stream of readableFileStreams) {
+                        if (!stream.stream.closed) {
+                            stream.stream.destroy();
+                        }
+                    }
+
+                    if (!res.destroyed) res.destroy();
+                });
+            }
+
+            //have all the read streams, add them to the zip download
+
+            for (let readStream of readableFileStreams) {
+                zipArchive.append(readStream.stream, { "name": readStream.name });
+            }
         }
+        else {
 
-        //have all the read streams, add them to the zip download
+            let streams: ReadStream[] = [];
 
-        for (let readStream of readableFileStreams) {
-            zipArchive.append(readStream.stream, { "name": readStream.name });
+            let streamPromises = [];
+
+            let err : boolean = false;
+
+            for (let fileEntry of relevantFileRecords) {
+
+                let stream = createReadStream(fileEntry.path);
+
+                streams.push(stream);
+
+                stream.on("error", (er) => {
+
+                    if (!res.destroyed) {
+                        res.destroy();
+                    }
+
+                    if (!zipArchive.destroyed) {
+                        zipArchive.destroy();
+                    }
+
+                    err = true;
+                });
+
+                streamPromises.push(once(stream , "close"));
+
+                zipArchive.append( stream , {
+                    "name" : fileEntry.basename,
+                    "stats" : fileEntry.stats
+                });
+            }
+
+            let [exitCodes] = await Promise.all(streamPromises);
+
+            if (err) {
+                return;
+            }
+
         }
-
         //should be streaming from temp file to archive now, which is piped to res.
 
         await zipArchive.finalize();

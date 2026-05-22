@@ -370,7 +370,7 @@ app.get("/transformDatasetStream", async (req, res) => {
 
             let streamPromises = [];
 
-            let err : boolean = false;
+            let err: boolean = false;
 
             for (let fileEntry of relevantFileRecords) {
 
@@ -391,17 +391,21 @@ app.get("/transformDatasetStream", async (req, res) => {
                     err = true;
                 });
 
-                streamPromises.push(once(stream , "close"));
+                streamPromises.push(once(stream, "close"));
 
-                zipArchive.append( stream , {
-                    "name" : fileEntry.basename,
-                    "stats" : fileEntry.stats
+                zipArchive.append(stream, {
+                    "name": fileEntry.basename,
+                    "stats": fileEntry.stats
                 });
+
             }
+
+            zipArchive.pipe(res);
 
             let [exitCodes] = await Promise.all(streamPromises);
 
             if (err) {
+                console.error(`error in stream`)
                 return;
             }
 
@@ -520,13 +524,17 @@ async function validateDirectoryPath(path: string, prepend: boolean = true): Pro
  */
 async function validateFileType(path: string): Promise<"raster" | "vector" | undefined> {
 
-    let isRaster = spawn("gdalinfo", [path]);
+    console.log(`path for check ${path}`);
 
-    let isFGB = spawn("ogrinfo", [path]);
+    let isRaster = spawn("gdalinfo", ["-so", path]);
 
-    let [results] = await Promise.all([once(isRaster, "close"), once(isFGB, "close")]);
+    let isFGB = spawn("ogrinfo", ["-so", path]);
 
-    return results[0] !== 0 && results[1] !== 0 ? undefined : results[0] === 0 ? "raster" : results[1] === 0 ? "vector" : undefined;
+    let results = await Promise.all([once(isRaster, "close"), once(isFGB, "close")]);
+
+    console.log(JSON.stringify(results))
+
+    return results[0][0] !== 0 && results[1][0] !== 0 ? undefined : results[0][0] === 0 ? "raster" : results[1][0] === 0 ? "vector" : undefined;
 }
 
 async function getFileStats(files: string[]): Promise<Stats[]> {

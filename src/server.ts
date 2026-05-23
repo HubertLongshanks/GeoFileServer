@@ -2,7 +2,7 @@ import express from "express";
 import * as v from "valibot";
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { once } from "node:events";
-import { rm, existsSync, unlink, Stats, ReadStream } from "node:fs";
+import { rm, existsSync, unlink, Stats, ReadStream, read } from "node:fs";
 import * as crypto from "node:crypto";
 import Archiver from "archiver";
 import { createReadStream } from "node:fs";
@@ -360,9 +360,14 @@ app.get("/transformDatasetStream", async (req, res) => {
 
             //have all the read streams, add them to the zip download
 
+            let rastPromises = [];
+
             for (let readStream of readableFileStreams) {
                 zipArchive.append(readStream.stream, { "name": readStream.name });
+                rastPromises.push(once(readStream.stream , "close"));
             }
+
+            let [codes] = await Promise.all(rastPromises);
         }
         else {
 

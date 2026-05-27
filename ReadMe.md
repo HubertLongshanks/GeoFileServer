@@ -1,5 +1,5 @@
 # GeoFileServer
-This is a small (Work In Progress) repo that implements a streaming based file server mainly directed towards GeoTIFF and FlatGeoBuffer files.
+This is a small repo that implements a streaming based file server mainly directed towards GeoTIFF and FlatGeoBuffer files.
 The server exposes a few REST endpoints that allow for (hopefully) efficient streaming of geographic files, subsets of those files and reprojections ( and any combiination thereof ) to a client. 
 
 ## Why

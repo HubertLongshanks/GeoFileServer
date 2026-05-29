@@ -69,3 +69,9 @@ GET
 
 *Returns*
 status code 200
+
+## Notes
+The server runs a subprocess or so per file stream (technically 2 in sequence if its raster as we have to eprsist a tmp to disk).
+This means that if you find yourself in a low core count env or one with high throughput. 
+you can potentially thrash the main thread (and the others) pretty easily. 
+This will be fixed in the future with a soft user-set concurrency limit.
